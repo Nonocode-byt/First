@@ -201,7 +201,7 @@ private fun Copy2WordScreen(
                 }
                 item {
                     Button(onClick = {
-                        if (snippets.isNotEmpty()) onExport("مستند مجمع", snippets.joinToString("\n\n--------------------\n\n"))
+                        if (snippets.isNotEmpty()) onExport("anwr", snippets.joinToString("\n\n--------------------\n\n"))
                         else Toast.makeText(context, "أضف نص واحد على الأقل للتجميعة", Toast.LENGTH_SHORT).show()
                     }, enabled = snippets.isNotEmpty(), modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("حفظ كل النصوص في ملف Word واحد") }
                 }
