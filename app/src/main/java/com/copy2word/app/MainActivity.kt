@@ -116,7 +116,7 @@ private fun Copy2WordScreen(
 ) {
     val context = LocalContext.current
     var draft by remember { mutableStateOf("") }
-    var fileName by remember { mutableStateOf("مستند جديد") }
+    var fileName by remember { mutableStateOf("anwr") }
     val snippets = remember { mutableStateListOf<String>() }
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
 
