@@ -119,7 +119,6 @@ private fun Copy2WordScreen(
     var fileName by remember { mutableStateOf("anwr") }
     val snippets = remember { mutableStateListOf<String>() }
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-    var lastPastedClipboard by remember { mutableStateOf<String?>(null) }
 
     MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF245BDB), background = Color(0xFFF5F7FC), surface = Color.White)) {
         Scaffold(containerColor = Color(0xFFF5F7FC)) { padding ->
@@ -148,13 +147,9 @@ private fun Copy2WordScreen(
                             OutlinedButton(onClick = {
                                 val copied = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
                                 if (copied.isNotBlank()) {
-                                    if (copied != lastPastedClipboard) {
-                                        draft = if (draft.isBlank()) copied else draft.trimEnd() + "\n" + copied
-                                        lastPastedClipboard = copied
-                                        Toast.makeText(context, "تمت إضافة النص الجديد مع النصوص السابقة", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "النص ده مضاف بالفعل", Toast.LENGTH_SHORT).show()
-                                    }
+                                    // Keep every paste action, including repeated identical text, in tap order.
+                                    draft = if (draft.isBlank()) copied else draft.trimEnd() + "\n" + copied
+                                    Toast.makeText(context, "تمت إضافة النص بالترتيب", Toast.LENGTH_SHORT).show()
                                 } else Toast.makeText(context, "مفيش نص منسوخ في Clipboard", Toast.LENGTH_SHORT).show()
                             }, modifier = Modifier.fillMaxWidth()) { Text("لصق من Clipboard") }
                             OutlinedButton(onClick = {
