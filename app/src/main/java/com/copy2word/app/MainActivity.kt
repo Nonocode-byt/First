@@ -119,6 +119,7 @@ private fun Copy2WordScreen(
     var fileName by remember { mutableStateOf("anwr") }
     val snippets = remember { mutableStateListOf<String>() }
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+    var lastPastedClipboard by remember { mutableStateOf<String?>(null) }
 
     MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF245BDB), background = Color(0xFFF5F7FC), surface = Color.White)) {
         Scaffold(containerColor = Color(0xFFF5F7FC)) { padding ->
@@ -146,8 +147,15 @@ private fun Copy2WordScreen(
                             )
                             OutlinedButton(onClick = {
                                 val copied = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
-                                if (copied.isNotBlank()) draft = copied
-                                else Toast.makeText(context, "مفيش نص منسوخ في Clipboard", Toast.LENGTH_SHORT).show()
+                                if (copied.isNotBlank()) {
+                                    if (copied != lastPastedClipboard) {
+                                        draft = if (draft.isBlank()) copied else draft.trimEnd() + "\n" + copied
+                                        lastPastedClipboard = copied
+                                        Toast.makeText(context, "تمت إضافة النص الجديد مع النصوص السابقة", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "النص ده مضاف بالفعل", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else Toast.makeText(context, "مفيش نص منسوخ في Clipboard", Toast.LENGTH_SHORT).show()
                             }, modifier = Modifier.fillMaxWidth()) { Text("لصق من Clipboard") }
                             OutlinedButton(onClick = {
                                 if (draft.isBlank()) {
@@ -285,11 +293,11 @@ private object DocxWriter {
             """<w:p><w:pPr><w:bidi/><w:jc w:val="right"/></w:pPr><w:r><w:rPr><w:rtl/><w:lang w:val="ar-EG"/></w:rPr><w:t xml:space="preserve">$escaped</w:t></w:r></w:p>"""
         }
         val document = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>$paragraphs<w:sectPr><w:bidi/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>"""
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>$paragraphs<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/><w:bidi w:val="1"/></w:sectPr></w:body></w:document>"""
         val types = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>"""
         val rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"""
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"""
         val styles = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rtl/><w:lang w:val="ar-EG" w:bidi="ar-EG"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:bidi/><w:jc w:val="right"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:bidi/><w:jc w:val="right"/></w:pPr><w:rPr><w:rtl/><w:lang w:val="ar-EG" w:bidi="ar-EG"/></w:rPr></w:style></w:styles>"""
         val output = ByteArrayOutputStream()
@@ -297,7 +305,7 @@ private object DocxWriter {
             fun entry(name: String, value: String) {
                 zip.putNextEntry(ZipEntry(name)); zip.write(value.toByteArray(Charsets.UTF_8)); zip.closeEntry()
             }
-            entry("[Content_Types].xml", types); entry("_rels/.rels", rels); entry("word/document.xml", document); entry("word/styles.xml", styles)
+            entry("[Content_Types].xml", types); entry("_rels/.rels", rels); entry("word/document.xml", document); entry("word/_rels/document.xml.rels", stylesRel); entry("word/styles.xml", styles)
         }
         return output.toByteArray()
     }
