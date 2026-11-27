@@ -142,6 +142,14 @@ private fun Copy2WordScreen(
                                 if (copied.isNotBlank()) draft = copied
                                 else Toast.makeText(context, "مفيش نص منسوخ في Clipboard", Toast.LENGTH_SHORT).show()
                             }, modifier = Modifier.fillMaxWidth()) { Text("لصق من Clipboard") }
+                            OutlinedButton(onClick = {
+                                if (draft.isBlank()) {
+                                    Toast.makeText(context, "الصق الرسائل الأول", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    draft = formatWhatsAppReport(draft)
+                                    Toast.makeText(context, "تم تنسيق التقرير بدون ترقيم للأسطر", Toast.LENGTH_SHORT).show()
+                                }
+                            }, modifier = Modifier.fillMaxWidth()) { Text("تنسيق التقرير") }
                             OutlinedButton(onClick = onChooseFolder, modifier = Modifier.fillMaxWidth()) {
                                 Text(if (folderChosen) "تغيير مجلد الحفظ" else "اختيار مجلد الحفظ")
                             }
@@ -178,8 +186,6 @@ private fun Copy2WordScreen(
                     itemsIndexed(snippets) { index, item ->
                         Card {
                             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text("${index + 1}.", fontWeight = FontWeight.Bold, color = Color(0xFF245BDB))
-                                Spacer(Modifier.width(10.dp))
                                 Text(item, modifier = Modifier.weight(1f), maxLines = 2)
                                 TextButton(onClick = { snippets.removeAt(index) }) { Text("حذف") }
                             }
@@ -195,6 +201,74 @@ private fun Copy2WordScreen(
             }
         }
     }
+}
+
+private fun formatWhatsAppReport(raw: String): String {
+    val headerPatterns = listOf(
+        Regex("""^\s*\[[^\]]+\]\s*.*?:\s?(.*)$"""),
+        Regex("""^\s*\d{1,2}[/-]\d{1,2}[/-]\d{2,4},?\s+\d{1,2}:\d{2}\s*(?:AM|PM|ص|م)?\s*-\s*[^:]+:\s?(.*)$""", RegexOption.IGNORE_CASE)
+    )
+    val cleaned = mutableListOf<String>()
+    var current = StringBuilder()
+
+    fun finishMessage() {
+        val value = current.toString().trim()
+        if (value.isNotBlank()) cleaned.add(value)
+        current = StringBuilder()
+    }
+
+    raw.replace("\r\n", "\n").replace('\r', '\n').lines().forEach { original ->
+        val line = original.trimEnd()
+        val match = headerPatterns.firstNotNullOfOrNull { it.matchEntire(line) }
+        if (match != null) {
+            finishMessage()
+            val body = match.groupValues[1].trim()
+            if (body.isNotBlank()) current.append(body)
+        } else if (line.isBlank()) {
+            if (current.isNotEmpty()) current.append('\n')
+        } else {
+            if (current.isNotEmpty()) current.append('\n')
+            current.append(line)
+        }
+    }
+    finishMessage()
+
+    val groups = linkedMapOf(
+        "أعمال الكهرباء" to mutableListOf<String>(),
+        "أعمال الزراعة والتجميل" to mutableListOf<String>(),
+        "أعمال الري والمياه" to mutableListOf<String>(),
+        "أعمال النظافة ورفع المخلفات" to mutableListOf<String>(),
+        "أعمال أخرى" to mutableListOf<String>()
+    )
+
+    cleaned.forEach { message ->
+        val value = message.lowercase()
+        val category = when {
+            listOf("كشاف", "كهرب", "شبكه", "شبكة", "كابل", "عمود", "أعمدة", "اناره", "إنارة", "بورن", "صوديوم", "ليد").any { value.contains(it) } ->
+                "أعمال الكهرباء"
+            listOf("رى ", "ري ", "مياه", "عداد", "أحواض", "احواض", "رى", "ري").any { value.contains(it) } ->
+                "أعمال الري والمياه"
+            listOf("مخلفات", "نظافة", "نظافه", "تحميل").any { value.contains(it) } ->
+                "أعمال النظافة ورفع المخلفات"
+            listOf("شجر", "أشجار", "اشجار", "نخيل", "نخله", "نخلة", "فيكس", "أسيجة", "اسيجه", "قص الستارة", "تقليم", "تهذيب").any { value.contains(it) } ->
+                "أعمال الزراعة والتجميل"
+            else -> "أعمال أخرى"
+        }
+        groups.getValue(category).add(message)
+    }
+
+    return buildString {
+        append("تقرير الأعمال\n\n")
+        groups.forEach { (heading, messages) ->
+            if (messages.isNotEmpty()) {
+                append(heading).append('\n')
+                messages.forEach { message ->
+                    append(message).append('\n')
+                }
+                append('\n')
+            }
+        }
+    }.trim()
 }
 
 private object DocxWriter {
