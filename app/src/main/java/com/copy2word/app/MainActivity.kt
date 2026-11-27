@@ -31,9 +31,26 @@ class MainActivity : ComponentActivity() {
     private var pendingDoc: ByteArray? = null
     private var pendingName = "Copy2Word.docx"
     private val prefs by lazy { getSharedPreferences("copy2word", Context.MODE_PRIVATE) }
+    private lateinit var folderLauncher: androidx.activity.result.ActivityResultLauncher<Uri?>
+    private lateinit var exportLauncher: androidx.activity.result.ActivityResultLauncher<String>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        folderLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+            if (uri != null) {
+                try {
+                    contentResolver.takePersistableUriPermission(uri,
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                    prefs.edit().putString("folder_uri", uri.toString()).apply()
+                    Toast.makeText(this, "تم اختيار مجلد الحفظ", Toast.LENGTH_LONG).show()
+                } catch (e: Exception) {
+                    Toast.makeText(this, "تعذر حفظ اختيار المجلد", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )) { uri: Uri? -> if (uri != null) writeDoc(uri) }
         setContent {
             Copy2WordScreen(
                 folderChosen = prefs.getString("folder_uri", null) != null,
@@ -47,30 +64,6 @@ class MainActivity : ComponentActivity() {
                 }
             )
         }
-    }
-
-    private val folderLauncher by lazy {
-        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
-            if (uri != null) {
-                try {
-                    contentResolver.takePersistableUriPermission(
-                        uri,
-                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                            android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                    )
-                    prefs.edit().putString("folder_uri", uri.toString()).apply()
-                    Toast.makeText(this, "تم اختيار مجلد الحفظ", Toast.LENGTH_LONG).show()
-                } catch (e: Exception) {
-                    Toast.makeText(this, "تعذر حفظ اختيار المجلد", Toast.LENGTH_LONG).show()
-                }
-            }
-        }
-    }
-
-    private val exportLauncher by lazy {
-        registerForActivityResult(ActivityResultContracts.CreateDocument(
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )) { uri: Uri? -> if (uri != null) writeDoc(uri) }
     }
 
     private fun saveIntoChosenFolder(treeUri: Uri) {
