@@ -68,8 +68,10 @@ class MainActivity : ComponentActivity() {
 
     private fun saveIntoChosenFolder(treeUri: Uri) {
         try {
+            val treeDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
+            val parentDocumentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocumentId)
             val uri = DocumentsContract.createDocument(
-                contentResolver, treeUri,
+                contentResolver, parentDocumentUri,
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 pendingName
             )
@@ -82,7 +84,9 @@ class MainActivity : ComponentActivity() {
 
     private fun writeDoc(uri: Uri) {
         try {
-            contentResolver.openOutputStream(uri)?.use { it.write(pendingDoc ?: byteArrayOf()) }
+            val output = contentResolver.openOutputStream(uri)
+                ?: throw IllegalStateException("تعذر فتح الملف للكتابة")
+            output.use { it.write(pendingDoc ?: byteArrayOf()) }
             Toast.makeText(this, "تم حفظ ملف Word بنجاح", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             Toast.makeText(this, "تعذر حفظ الملف: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
