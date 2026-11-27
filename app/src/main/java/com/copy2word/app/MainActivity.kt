@@ -34,18 +34,21 @@ class MainActivity : ComponentActivity() {
     private var pendingDoc: ByteArray? = null
     private var pendingName = "Copy2Word.docx"
     private val prefs by lazy { getSharedPreferences("copy2word", Context.MODE_PRIVATE) }
+    private var savedFolderUri by mutableStateOf<String?>(null)
     private lateinit var folderLauncher: androidx.activity.result.ActivityResultLauncher<Uri?>
     private lateinit var exportLauncher: androidx.activity.result.ActivityResultLauncher<String>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        savedFolderUri = prefs.getString("folder_uri", null)
         folderLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
             if (uri != null) {
                 try {
                     contentResolver.takePersistableUriPermission(uri,
                         android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
                     prefs.edit().putString("folder_uri", uri.toString()).apply()
-                    Toast.makeText(this, "تم اختيار مجلد الحفظ", Toast.LENGTH_LONG).show()
+                    savedFolderUri = uri.toString()
+                    Toast.makeText(this, "تم اختيار مجلد الحفظ. اضغط نفس الزر لحفظ التقرير", Toast.LENGTH_LONG).show()
                 } catch (e: Exception) {
                     Toast.makeText(this, "تعذر حفظ اختيار المجلد", Toast.LENGTH_LONG).show()
                 }
@@ -56,12 +59,12 @@ class MainActivity : ComponentActivity() {
         )) { uri: Uri? -> if (uri != null) writeDoc(uri) }
         setContent {
             Copy2WordScreen(
-                folderChosen = prefs.getString("folder_uri", null) != null,
+                folderChosen = savedFolderUri != null,
                 onChooseFolder = { folderLauncher.launch(null) },
                 onExport = { name, text ->
                     pendingName = safeName(name)
                     pendingDoc = DocxWriter.create(text)
-                    val savedTree = prefs.getString("folder_uri", null)?.let(Uri::parse)
+                    val savedTree = savedFolderUri?.let(Uri::parse)
                     if (savedTree != null) saveIntoChosenFolder(savedTree)
                     else exportLauncher.launch(pendingName)
                 }
@@ -154,18 +157,18 @@ private fun Copy2WordScreen(
                                     Toast.makeText(context, "تم تنسيق التقرير بدون ترقيم للأسطر", Toast.LENGTH_SHORT).show()
                                 }
                             }, modifier = Modifier.fillMaxWidth()) { Text("تنسيق التقرير") }
-                            OutlinedButton(onClick = onChooseFolder, modifier = Modifier.fillMaxWidth()) {
-                                Text(if (folderChosen) "تغيير مجلد الحفظ" else "اختيار مجلد الحفظ")
-                            }
                             Text(
-                                if (folderChosen) "مكان الحفظ: المجلد الذي اخترته" else "مكان الحفظ: اختر مجلدًا أو حدده وقت الحفظ",
+                                if (folderChosen) "مكان الحفظ: المجلد الذي اخترته مسبقًا" else "اضغط الزر بالأسفل لاختيار مجلد الحفظ أول مرة",
                                 color = Color(0xFF68758B), fontSize = 12.sp
                             )
                             OutlinedTextField(value = fileName, onValueChange = { fileName = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("اسم ملف Word") })
                             Button(onClick = {
-                                if (draft.isBlank()) Toast.makeText(context, "الصق نص الأول", Toast.LENGTH_SHORT).show()
+                                if (!folderChosen) onChooseFolder()
+                                else if (draft.isBlank()) Toast.makeText(context, "الصق نص الأول", Toast.LENGTH_SHORT).show()
                                 else onExport(fileName, draft)
-                            }, modifier = Modifier.fillMaxWidth()) { Text("حفظ النص كملف Word مستقل") }
+                            }, modifier = Modifier.fillMaxWidth()) {
+                                Text(if (folderChosen) "حفظ ملف Word" else "اختيار مجلد الحفظ")
+                            }
                             OutlinedButton(onClick = {
                                 if (draft.isNotBlank()) {
                                     snippets.add(draft.trim()); draft = ""
@@ -282,17 +285,19 @@ private object DocxWriter {
             """<w:p><w:pPr><w:bidi/><w:jc w:val="right"/></w:pPr><w:r><w:rPr><w:rtl/><w:lang w:val="ar-EG"/></w:rPr><w:t xml:space="preserve">$escaped</w:t></w:r></w:p>"""
         }
         val document = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>$paragraphs<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>"""
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>$paragraphs<w:sectPr><w:bidi/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>"""
         val types = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>"""
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>"""
         val rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"""
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"""
+        val styles = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rtl/><w:lang w:val="ar-EG" w:bidi="ar-EG"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:bidi/><w:jc w:val="right"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:bidi/><w:jc w:val="right"/></w:pPr><w:rPr><w:rtl/><w:lang w:val="ar-EG" w:bidi="ar-EG"/></w:rPr></w:style></w:styles>"""
         val output = ByteArrayOutputStream()
         ZipOutputStream(output).use { zip ->
             fun entry(name: String, value: String) {
                 zip.putNextEntry(ZipEntry(name)); zip.write(value.toByteArray(Charsets.UTF_8)); zip.closeEntry()
             }
-            entry("[Content_Types].xml", types); entry("_rels/.rels", rels); entry("word/document.xml", document)
+            entry("[Content_Types].xml", types); entry("_rels/.rels", rels); entry("word/document.xml", document); entry("word/styles.xml", styles)
         }
         return output.toByteArray()
     }
