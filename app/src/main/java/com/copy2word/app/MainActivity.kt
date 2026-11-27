@@ -194,7 +194,7 @@ private fun Copy2WordScreen(
                 }
                 item {
                     Button(onClick = {
-                        if (snippets.isNotEmpty()) onExport("مستند مجمع", snippets.joinToString("\\n\\n--------------------\\n\\n"))
+                        if (snippets.isNotEmpty()) onExport("مستند مجمع", snippets.joinToString("\n\n--------------------\n\n"))
                         else Toast.makeText(context, "أضف نص واحد على الأقل للتجميعة", Toast.LENGTH_SHORT).show()
                     }, enabled = snippets.isNotEmpty(), modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("حفظ كل النصوص في ملف Word واحد") }
                 }
@@ -273,7 +273,7 @@ private fun formatWhatsAppReport(raw: String): String {
 
 private object DocxWriter {
     fun create(text: String): ByteArray {
-        val paragraphs = text.split("\\n").joinToString("") { line ->
+        val paragraphs = text.split("\n").joinToString("") { line ->
             val escaped = xmlEscape(line)
             """<w:p><w:pPr><w:bidi/><w:jc w:val="right"/></w:pPr><w:r><w:rPr><w:rtl/><w:lang w:val="ar-EG"/></w:rPr><w:t xml:space="preserve">$escaped</w:t></w:r></w:p>"""
         }
