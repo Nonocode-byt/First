@@ -1,11 +1,9 @@
 package com.copy2word.app
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.DocumentsContract
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -31,35 +29,71 @@ import java.util.zip.ZipOutputStream
 
 class MainActivity : ComponentActivity() {
     private var pendingDoc: ByteArray? = null
-    private var pendingName: String = "Copy2Word.docx"
+    private var pendingName = "Copy2Word.docx"
+    private val prefs by lazy { getSharedPreferences("copy2word", Context.MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { Copy2WordScreen(
-            onExport = { name, text ->
-                pendingName = safeName(name)
-                pendingDoc = DocxWriter.create(text)
-                exportLauncher.launch(pendingName)
+        setContent {
+            Copy2WordScreen(
+                folderChosen = prefs.getString("folder_uri", null) != null,
+                onChooseFolder = { folderLauncher.launch(null) },
+                onExport = { name, text ->
+                    pendingName = safeName(name)
+                    pendingDoc = DocxWriter.create(text)
+                    val savedTree = prefs.getString("folder_uri", null)?.let(Uri::parse)
+                    if (savedTree != null) saveIntoChosenFolder(savedTree)
+                    else exportLauncher.launch(pendingName)
+                }
+            )
+        }
+    }
+
+    private val folderLauncher by lazy {
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+            if (uri != null) {
+                try {
+                    contentResolver.takePersistableUriPermission(
+                        uri,
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    )
+                    prefs.edit().putString("folder_uri", uri.toString()).apply()
+                    Toast.makeText(this, "تم اختيار مجلد الحفظ", Toast.LENGTH_LONG).show()
+                } catch (e: Exception) {
+                    Toast.makeText(this, "تعذر حفظ اختيار المجلد", Toast.LENGTH_LONG).show()
+                }
             }
-        ) }
+        }
     }
 
     private val exportLauncher by lazy {
         registerForActivityResult(ActivityResultContracts.CreateDocument(
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )) { uri: Uri? ->
-            if (uri != null) {
-                try {
-                    contentResolver.openOutputStream(uri)?.use { out ->
-                        out.write(pendingDoc ?: byteArrayOf())
-                    }
-                    Toast.makeText(this, "تم حفظ ملف Word بنجاح", Toast.LENGTH_LONG).show()
-                } catch (e: Exception) {
-                    Toast.makeText(this, "تعذر حفظ الملف: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
-                }
-            }
-            pendingDoc = null
+        )) { uri: Uri? -> if (uri != null) writeDoc(uri) }
+    }
+
+    private fun saveIntoChosenFolder(treeUri: Uri) {
+        try {
+            val uri = DocumentsContract.createDocument(
+                contentResolver, treeUri,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                pendingName
+            )
+            if (uri != null) writeDoc(uri)
+            else Toast.makeText(this, "تعذر إنشاء الملف في المجلد المختار", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "تعذر الحفظ؛ اختر مجلدًا آخر", Toast.LENGTH_LONG).show()
         }
+    }
+
+    private fun writeDoc(uri: Uri) {
+        try {
+            contentResolver.openOutputStream(uri)?.use { it.write(pendingDoc ?: byteArrayOf()) }
+            Toast.makeText(this, "تم حفظ ملف Word بنجاح", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "تعذر حفظ الملف: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+        } finally { pendingDoc = null }
     }
 
     private fun safeName(value: String): String {
@@ -72,21 +106,18 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Copy2WordScreen(onExport: (String, String) -> Unit) {
+private fun Copy2WordScreen(
+    folderChosen: Boolean,
+    onChooseFolder: () -> Unit,
+    onExport: (String, String) -> Unit
+) {
     val context = LocalContext.current
     var draft by remember { mutableStateOf("") }
     var fileName by remember { mutableStateOf("مستند جديد") }
     val snippets = remember { mutableStateListOf<String>() }
-    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
 
-    MaterialTheme(
-        colorScheme = lightColorScheme(
-            primary = Color(0xFF245BDB),
-            secondary = Color(0xFF13A89E),
-            background = Color(0xFFF5F7FC),
-            surface = Color.White
-        )
-    ) {
+    MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF245BDB), background = Color(0xFFF5F7FC), surface = Color.White)) {
         Scaffold(containerColor = Color(0xFFF5F7FC)) { padding ->
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp),
@@ -100,7 +131,7 @@ private fun Copy2WordScreen(onExport: (String, String) -> Unit) {
                     }
                 }
                 item {
-                    Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                    Card(shape = RoundedCornerShape(22.dp)) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("النص الجديد", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                             OutlinedTextField(
@@ -109,36 +140,29 @@ private fun Copy2WordScreen(onExport: (String, String) -> Unit) {
                                 placeholder = { Text("الصق هنا أي نص نسخته من واتساب أو أي تطبيق...") },
                                 minLines = 5
                             )
-                            Button(
-                                onClick = {
-                                    val item = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
-                                    if (item.isNotBlank()) draft = item
-                                    else Toast.makeText(context, "مفيش نص منسوخ في Clipboard", Toast.LENGTH_SHORT).show()
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) { Text("لصق من Clipboard") }
-                            OutlinedTextField(
-                                value = fileName, onValueChange = { fileName = it },
-                                modifier = Modifier.fillMaxWidth(), singleLine = true,
-                                label = { Text("اسم ملف Word") }
+                            OutlinedButton(onClick = {
+                                val copied = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+                                if (copied.isNotBlank()) draft = copied
+                                else Toast.makeText(context, "مفيش نص منسوخ في Clipboard", Toast.LENGTH_SHORT).show()
+                            }, modifier = Modifier.fillMaxWidth()) { Text("لصق من Clipboard") }
+                            OutlinedButton(onClick = onChooseFolder, modifier = Modifier.fillMaxWidth()) {
+                                Text(if (folderChosen) "تغيير مجلد الحفظ" else "اختيار مجلد الحفظ")
+                            }
+                            Text(
+                                if (folderChosen) "مكان الحفظ: المجلد الذي اخترته" else "مكان الحفظ: اختر مجلدًا أو حدده وقت الحفظ",
+                                color = Color(0xFF68758B), fontSize = 12.sp
                             )
-                            Button(
-                                onClick = {
-                                    if (draft.isBlank()) Toast.makeText(context, "اكتب أو الصق نص الأول", Toast.LENGTH_SHORT).show()
-                                    else onExport(fileName, draft)
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) { Text("حفظ النص كملف Word مستقل") }
-                            OutlinedButton(
-                                onClick = {
-                                    if (draft.isNotBlank()) {
-                                        snippets.add(draft.trim())
-                                        draft = ""
-                                        Toast.makeText(context, "اتضاف النص للتجميعة", Toast.LENGTH_SHORT).show()
-                                    } else Toast.makeText(context, "الصق نص الأول", Toast.LENGTH_SHORT).show()
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) { Text("إضافة النص إلى ملف مجمّع") }
+                            OutlinedTextField(value = fileName, onValueChange = { fileName = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("اسم ملف Word") })
+                            Button(onClick = {
+                                if (draft.isBlank()) Toast.makeText(context, "الصق نص الأول", Toast.LENGTH_SHORT).show()
+                                else onExport(fileName, draft)
+                            }, modifier = Modifier.fillMaxWidth()) { Text("حفظ النص كملف Word مستقل") }
+                            OutlinedButton(onClick = {
+                                if (draft.isNotBlank()) {
+                                    snippets.add(draft.trim()); draft = ""
+                                    Toast.makeText(context, "اتضاف النص للتجميعة", Toast.LENGTH_SHORT).show()
+                                } else Toast.makeText(context, "الصق نص الأول", Toast.LENGTH_SHORT).show()
+                            }, modifier = Modifier.fillMaxWidth()) { Text("إضافة النص إلى ملف مجمّع") }
                         }
                     }
                 }
@@ -152,14 +176,10 @@ private fun Copy2WordScreen(onExport: (String, String) -> Unit) {
                     }
                 }
                 if (snippets.isEmpty()) {
-                    item {
-                        Box(Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(16.dp)).padding(20.dp), contentAlignment = Alignment.Center) {
-                            Text("أي نص تضيفه هنا هيتجمع في ملف Word واحد.", color = Color(0xFF68758B))
-                        }
-                    }
+                    item { Box(Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(16.dp)).padding(20.dp), contentAlignment = Alignment.Center) { Text("أي نص تضيفه هنا هيتجمع في ملف Word واحد.", color = Color(0xFF68758B)) } }
                 } else {
                     itemsIndexed(snippets) { index, item ->
-                        Card(colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                        Card {
                             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text("${index + 1}.", fontWeight = FontWeight.Bold, color = Color(0xFF245BDB))
                                 Spacer(Modifier.width(10.dp))
@@ -170,17 +190,10 @@ private fun Copy2WordScreen(onExport: (String, String) -> Unit) {
                     }
                 }
                 item {
-                    Button(
-                        onClick = {
-                            if (snippets.isNotEmpty()) onExport("مستند مجمع", snippets.joinToString("\n\n--------------------\n\n"))
-                            else Toast.makeText(context, "أضف نص واحد على الأقل للتجميعة", Toast.LENGTH_SHORT).show()
-                        },
-                        enabled = snippets.isNotEmpty(),
-                        modifier = Modifier.fillMaxWidth().height(52.dp)
-                    ) { Text("حفظ كل النصوص في ملف Word واحد") }
-                }
-                item {
-                    Text("الملفات بتتحفظ في المكان اللي تختاره من نافذة الحفظ، وتقدر تنقلها للكمبيوتر باستخدام USB أو تشاركها.", color = Color(0xFF68758B), fontSize = 12.sp)
+                    Button(onClick = {
+                        if (snippets.isNotEmpty()) onExport("مستند مجمع", snippets.joinToString("\\n\\n--------------------\\n\\n"))
+                        else Toast.makeText(context, "أضف نص واحد على الأقل للتجميعة", Toast.LENGTH_SHORT).show()
+                    }, enabled = snippets.isNotEmpty(), modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("حفظ كل النصوص في ملف Word واحد") }
                 }
             }
         }
@@ -189,7 +202,7 @@ private fun Copy2WordScreen(onExport: (String, String) -> Unit) {
 
 private object DocxWriter {
     fun create(text: String): ByteArray {
-        val paragraphs = text.split("\n").joinToString("") { line ->
+        val paragraphs = text.split("\\n").joinToString("") { line ->
             val escaped = xmlEscape(line)
             """<w:p><w:pPr><w:bidi/><w:jc w:val="right"/></w:pPr><w:r><w:rPr><w:rtl/><w:lang w:val="ar-EG"/></w:rPr><w:t xml:space="preserve">$escaped</w:t></w:r></w:p>"""
         }
@@ -202,18 +215,11 @@ private object DocxWriter {
         val output = ByteArrayOutputStream()
         ZipOutputStream(output).use { zip ->
             fun entry(name: String, value: String) {
-                zip.putNextEntry(ZipEntry(name))
-                zip.write(value.toByteArray(Charsets.UTF_8))
-                zip.closeEntry()
+                zip.putNextEntry(ZipEntry(name)); zip.write(value.toByteArray(Charsets.UTF_8)); zip.closeEntry()
             }
-            entry("[Content_Types].xml", types)
-            entry("_rels/.rels", rels)
-            entry("word/document.xml", document)
+            entry("[Content_Types].xml", types); entry("_rels/.rels", rels); entry("word/document.xml", document)
         }
         return output.toByteArray()
     }
-
-    private fun xmlEscape(value: String): String = value
-        .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        .replace("\"", "&quot;").replace("'", "&apos;")
+    private fun xmlEscape(value: String): String = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&apos;")
 }
