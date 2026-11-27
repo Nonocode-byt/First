@@ -148,7 +148,7 @@ private fun Copy2WordScreen(
                                 val copied = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
                                 if (copied.isNotBlank()) {
                                     // Keep every paste action, including repeated identical text, in tap order.
-                                    draft = if (draft.isBlank()) copied else draft.trimEnd() + "\n" + copied
+                                    draft = if (draft.isBlank()) copied.trim() else draft.trimEnd() + " " + copied.trimStart()
                                     Toast.makeText(context, "تمت إضافة النص بالترتيب", Toast.LENGTH_SHORT).show()
                                 } else Toast.makeText(context, "مفيش نص منسوخ في Clipboard", Toast.LENGTH_SHORT).show()
                             }, modifier = Modifier.fillMaxWidth()) { Text("لصق من Clipboard") }
